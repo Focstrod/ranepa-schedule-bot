@@ -1,26 +1,46 @@
-name: Test Telegram Bot
+name: RANEPA Schedule Bot
 
 on:
   workflow_dispatch:
 
+  schedule:
+    - cron: "7 * * * *"
+
+permissions:
+  contents: write
+
 jobs:
-  test:
+  schedule-bot:
     runs-on: ubuntu-latest
 
     steps:
       - name: Download repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
-      - name: Install requirements
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run bot
+      - name: Run schedule bot
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python bot.py
+
+      - name: Save bot state
+        run: |
+          if [ -f state.json ]; then
+            git config user.name "ranepa-schedule-bot"
+            git config user.email "actions@github.com"
+
+            git add state.json
+
+            if ! git diff --cached --quiet; then
+              git commit -m "Update schedule bot state"
+              git push
+            fi
+          fi
