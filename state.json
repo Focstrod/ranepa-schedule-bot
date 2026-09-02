@@ -3,7 +3,7 @@
   "current_week_end": "2026-09-06",
   "next_week_start": "2026-09-07",
   "next_week_end": "2026-09-13",
-  "message_id": 57,
+  "message_id": 58,
   "current_schedule": [
     {
       "date": "2026-09-01",
@@ -52,7 +52,7 @@
       "kind": "normal",
       "subject": "Мировая экономика",
       "lesson_type": "лекция",
-      "room": "кабинет не указан",
+      "room": "СДО",
       "teacher": "Мисько Олег Николаевич"
     }
   ],
