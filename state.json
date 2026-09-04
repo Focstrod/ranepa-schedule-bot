@@ -3,7 +3,7 @@
   "current_week_end": "2026-09-06",
   "next_week_start": "2026-09-07",
   "next_week_end": "2026-09-13",
-  "message_id": 58,
+  "message_id": 85,
   "current_schedule": [
     {
       "date": "2026-09-01",
@@ -74,7 +74,7 @@
       "kind": "normal",
       "subject": "Основы ведения переговорного процесса",
       "lesson_type": "лекция",
-      "room": "кабинет не указан",
+      "room": "322",
       "teacher": "Шевчук Нина Викторовна"
     },
     {
