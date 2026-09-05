@@ -19,10 +19,23 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 TARGET_GROUP = 3
-
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 STATE_FILE = "state.json"
+
+# =========================================================
+# ВЕРСИЯ ОФОРМЛЕНИЯ
+#
+# Если в будущем поменяешь эмодзи, оформление,
+# заголовки и т.д. — просто увеличь:
+#
+# FORMAT_VERSION = 2
+# потом 3, 4...
+#
+# Бот один раз принудительно обновит сообщение.
+# =========================================================
+
+FORMAT_VERSION = 1
 
 
 DAY_NAMES = {
@@ -58,9 +71,6 @@ def group_matches(group_text):
     """
 
     text = clean(group_text)
-
-    # Подгруппу после / при определении основной группы
-    # не учитываем.
     base = text.split("/")[0]
 
     match = re.search(
@@ -83,22 +93,19 @@ def group_matches(group_text):
 
 
 # =========================================================
-# ОПРЕДЕЛЕНИЕ ДВУХ НЕДЕЛЬ
+# ДВЕ НЕДЕЛИ
 # =========================================================
 
 def get_weeks(now):
     """
     До субботы 22:00:
-
-    текущая = текущая календарная неделя
-    следующая = следующая календарная неделя
+    текущая неделя = календарная текущая.
 
     С субботы 22:00 МСК:
+    текущая неделя = неделя с ближайшего понедельника.
 
-    текущая = неделя с ближайшего понедельника
-    следующая = неделя после неё
-
-    Всё воскресенье уже используется новый период.
+    Воскресенье также уже относится
+    к новому двухнедельному периоду.
     """
 
     current_monday = (
@@ -108,14 +115,12 @@ def get_weeks(now):
 
     should_shift = False
 
-    # Суббота после 22:00
     if (
         now.weekday() == 5
         and now.time() >= time(22, 0)
     ):
         should_shift = True
 
-    # Всё воскресенье
     if now.weekday() == 6:
         should_shift = True
 
@@ -262,8 +267,7 @@ def fetch_schedule():
 
     if not rows:
         raise RuntimeError(
-            "Не удалось получить ни одной "
-            "строки расписания для группы."
+            "Не удалось получить расписание группы."
         )
 
     return rows
@@ -308,9 +312,7 @@ def normalize_lesson_type(value):
 
 def is_second_language(subject):
 
-    subject = clean(
-        subject
-    ).lower()
+    subject = clean(subject).lower()
 
     return (
         subject == "второй иностранный язык"
@@ -322,9 +324,7 @@ def is_second_language(subject):
 
 def is_english(subject):
 
-    subject = clean(
-        subject
-    ).lower()
+    subject = clean(subject).lower()
 
     variants = {
         "иностранный язык",
@@ -337,18 +337,8 @@ def is_english(subject):
 
 
 def is_physical_education(subject):
-    """
-    Например:
 
-    Элективные курсы по физической культуре:
-    Лёгкая атлетика; Фитнес; Спортивные игры
-
-    -> Физра
-    """
-
-    subject = clean(
-        subject
-    ).lower()
+    subject = clean(subject).lower()
 
     return (
         "физическая культура" in subject
@@ -359,7 +349,7 @@ def is_physical_education(subject):
 
 
 # =========================================================
-# ПОДГОТОВКА РАСПИСАНИЯ
+# ПОДГОТОВКА ДАННЫХ
 # =========================================================
 
 def prepare_rows(
@@ -387,9 +377,9 @@ def prepare_rows(
 
         subject = row["subject"]
 
-        # -------------------------------------------------
-        # ВТОРОЙ ИНОСТРАННЫЙ
-        # -------------------------------------------------
+        # =================================================
+        # 2 ИНОСТРАННЫЙ
+        # =================================================
 
         if is_second_language(subject):
 
@@ -397,21 +387,16 @@ def prepare_rows(
                 "date": row["date"],
                 "start": row["start"],
                 "end": row["end"],
-
-                "kind":
-                    "second_language",
-
-                "subject":
-                    "2 иностранный",
-
+                "kind": "second_language",
+                "subject": "2 иностранный",
                 "lesson_type": "",
                 "room": "",
                 "teacher": "",
             }
 
-        # -------------------------------------------------
+        # =================================================
         # АНГЛИЙСКИЙ
-        # -------------------------------------------------
+        # =================================================
 
         elif is_english(subject):
 
@@ -419,50 +404,37 @@ def prepare_rows(
                 "date": row["date"],
                 "start": row["start"],
                 "end": row["end"],
-
-                "kind":
-                    "english",
-
-                "subject":
-                    "Английский язык",
-
+                "kind": "english",
+                "subject": "Английский язык",
                 "lesson_type": "",
                 "room": "",
                 "teacher": "",
             }
 
-        # -------------------------------------------------
+        # =================================================
         # ФИЗРА
-        # -------------------------------------------------
+        # =================================================
 
-        elif is_physical_education(
-            subject
-        ):
+        elif is_physical_education(subject):
 
             item = {
                 "date": row["date"],
 
-                # Настоящее время сохраняем внутри.
+                # Настоящее время оставляем внутри,
+                # чтобы правильно отслеживать изменения.
                 "start": row["start"],
                 "end": row["end"],
 
-                "kind":
-                    "physical",
-
-                "subject":
-                    "Физра",
-
+                "kind": "physical",
+                "subject": "Физра",
                 "lesson_type": "",
-
-                "room":
-                    "стадион",
-
+                "room": "стадион",
                 "teacher": "",
             }
 
-        # -------------------------------------------------
+        # =================================================
         # ОБЫЧНАЯ ПАРА
-        # -------------------------------------------------
+        # =================================================
 
         else:
 
@@ -492,17 +464,15 @@ def prepare_rows(
                         row["room"]
                     ),
 
-                # Преподавателя в Telegram не показываем,
-                # но изменение преподавателя отслеживаем.
+                # Преподавателя в сообщении нет,
+                # но смена преподавателя отслеживается.
                 "teacher":
                     clean(
                         row["teacher"]
                     ),
             }
 
-        result.append(
-            item
-        )
+        result.append(item)
 
     # =====================================================
     # УДАЛЕНИЕ ДУБЛЕЙ
@@ -546,7 +516,7 @@ def prepare_rows(
 
 
 # =========================================================
-# ОБЪЕДИНЕНИЕ ПОСЛЕДОВАТЕЛЬНЫХ ПАР
+# ОБЪЕДИНЕНИЕ ПАР
 # =========================================================
 
 OFFICIAL_ADJACENCY = {
@@ -584,8 +554,6 @@ def can_merge(a, b):
     if a["subject"] != b["subject"]:
         return False
 
-    # Для обычных занятий должны совпадать:
-    # тип, аудитория и преподаватель.
     if a["kind"] == "normal":
 
         if (
@@ -594,10 +562,7 @@ def can_merge(a, b):
         ):
             return False
 
-        if (
-            a["room"]
-            != b["room"]
-        ):
+        if a["room"] != b["room"]:
             return False
 
         if (
@@ -606,19 +571,23 @@ def can_merge(a, b):
         ):
             return False
 
-    # Известные соседние университетские слоты.
+    # Соседние официальные слоты
     if (
         a["end"],
         b["start"]
     ) in OFFICIAL_ADJACENCY:
         return True
 
-    previous_end = to_minutes(
-        a["end"]
+    previous_end = (
+        to_minutes(
+            a["end"]
+        )
     )
 
-    next_start = to_minutes(
-        b["start"]
+    next_start = (
+        to_minutes(
+            b["start"]
+        )
     )
 
     gap = (
@@ -626,7 +595,9 @@ def can_merge(a, b):
         - previous_end
     )
 
-    return 0 <= gap <= 30
+    return (
+        0 <= gap <= 30
+    )
 
 
 def merge_lessons(rows):
@@ -676,12 +647,12 @@ def merge_lessons(rows):
 
 
 # =========================================================
-# ВРЕМЯ ДЛЯ ОТОБРАЖЕНИЯ
+# ОТОБРАЖАЕМОЕ ВРЕМЯ
 # =========================================================
 
 def display_start(row):
 
-    # Физра всегда отображается с 09:00.
+    # Физра всегда пишется с 09:00.
     if row["kind"] == "physical":
         return "09:00"
 
@@ -698,13 +669,15 @@ def display_time_range(row):
 
 
 # =========================================================
-# ФОРМАТ ОДНОЙ ПАРЫ
+# ФОРМАТ ПАРЫ
 # =========================================================
 
 def format_lesson(row):
 
-    time_text = display_time_range(
-        row
+    time_text = (
+        display_time_range(
+            row
+        )
     )
 
     subject = escape(
@@ -755,7 +728,7 @@ def format_lesson(row):
 
 
 # =========================================================
-# ФОРМАТ ОДНОЙ НЕДЕЛИ
+# ФОРМАТ НЕДЕЛИ
 # =========================================================
 
 def format_week(
@@ -784,8 +757,10 @@ def format_week(
             []
         ).append(row)
 
-    # Если расписание этой недели
-    # ещё вообще не опубликовано.
+    # =====================================================
+    # РАСПИСАНИЕ ЕЩЁ НЕ ОПУБЛИКОВАНО
+    # =====================================================
+
     if not rows:
 
         return (
@@ -798,9 +773,10 @@ def format_week(
             f'Расписание пока не опубликовано'
         )
 
-    # Обычно показываем ПН–СБ.
-    # Воскресенье добавляется,
-    # только если реально есть занятия.
+    # =====================================================
+    # ПН-СБ ИЛИ ПН-ВС
+    # =====================================================
+
     if sunday.isoformat() in by_date:
 
         display_end = sunday
@@ -878,7 +854,7 @@ def format_week(
 
 
 # =========================================================
-# ПРОВЕРКА ПРОШЕДШИХ ПАР
+# ПРОШЕДШАЯ ЛИ ПАРА
 # =========================================================
 
 def lesson_is_past(
@@ -894,22 +870,28 @@ def lesson_is_past(
 
     try:
 
-        end_time = datetime.strptime(
-            row["end"],
-            "%H:%M"
-        ).time()
+        end_time = (
+            datetime.strptime(
+                row["end"],
+                "%H:%M"
+            ).time()
+        )
 
     except ValueError:
 
         return False
 
-    lesson_end = datetime.combine(
-        lesson_date,
-        end_time,
-        tzinfo=MOSCOW,
+    lesson_end = (
+        datetime.combine(
+            lesson_date,
+            end_time,
+            tzinfo=MOSCOW,
+        )
     )
 
-    return lesson_end < now
+    return (
+        lesson_end < now
+    )
 
 
 def comparison_rows(
@@ -941,12 +923,10 @@ def comparison_rows(
 
 
 # =========================================================
-# КРАСИВАЯ ДАТА
+# ДАТА ДЛЯ БЛОКА ИЗМЕНЕНИЙ
 # =========================================================
 
-def pretty_date(
-    iso_date
-):
+def pretty_date(iso_date):
 
     date_obj = (
         datetime.fromisoformat(
@@ -954,8 +934,10 @@ def pretty_date(
         ).date()
     )
 
-    return date_obj.strftime(
-        "%d.%m"
+    return (
+        date_obj.strftime(
+            "%d.%m"
+        )
     )
 
 
@@ -969,8 +951,10 @@ def lesson_brief(row):
         row["date"]
     )
 
-    time_text = display_time_range(
-        row
+    time_text = (
+        display_time_range(
+            row
+        )
     )
 
     return (
@@ -981,7 +965,7 @@ def lesson_brief(row):
 
 
 # =========================================================
-# ОПИСАНИЕ ИЗМЕНЕНИЙ ПАРЫ
+# ИЗМЕНЕНИЯ ПАРЫ
 # =========================================================
 
 def metadata_changes(
@@ -999,8 +983,10 @@ def metadata_changes(
         new["date"]
     )
 
-    time_text = display_time_range(
-        new
+    time_text = (
+        display_time_range(
+            new
+        )
     )
 
     # =====================================================
@@ -1036,7 +1022,7 @@ def metadata_changes(
             == "кабинет не указан"
         )
 
-        # Добавили аудиторию
+        # Добавлена аудитория
         if (
             old_missing
             and not new_missing
@@ -1050,7 +1036,7 @@ def metadata_changes(
                 f' · {time_text}'
             )
 
-        # Убрали аудиторию
+        # Убрана аудитория
         elif (
             not old_missing
             and new_missing
@@ -1063,7 +1049,7 @@ def metadata_changes(
                 f' · {time_text}'
             )
 
-        # Поменяли одну аудиторию на другую
+        # Аудитория изменена
         elif (
             not old_missing
             and not new_missing
@@ -1162,7 +1148,7 @@ def find_changes(
     changes = []
 
     # =====================================================
-    # 1. ТА ЖЕ ПАРА И ТО ЖЕ ВРЕМЯ
+    # 1. ТА ЖЕ ПАРА, ТО ЖЕ ВРЕМЯ
     # =====================================================
 
     for old_index, old_row in enumerate(
@@ -1253,8 +1239,6 @@ def find_changes(
                     )
                 )
 
-        # Если найден только один логичный кандидат,
-        # считаем это переносом времени.
         if len(candidates) == 1:
 
             new_index, new_row = (
@@ -1277,12 +1261,16 @@ def find_changes(
                 new_row["date"]
             )
 
-            old_time = display_time_range(
-                old_row
+            old_time = (
+                display_time_range(
+                    old_row
+                )
             )
 
-            new_time = display_time_range(
-                new_row
+            new_time = (
+                display_time_range(
+                    new_row
+                )
             )
 
             if old_time != new_time:
@@ -1303,7 +1291,7 @@ def find_changes(
             )
 
     # =====================================================
-    # 3. УБРАЛИ ПАРУ
+    # 3. УБРАННЫЕ ПАРЫ
     # =====================================================
 
     for old_index, old_row in enumerate(
@@ -1319,7 +1307,7 @@ def find_changes(
         )
 
     # =====================================================
-    # 4. ДОБАВИЛИ ПАРУ
+    # 4. ДОБАВЛЕННЫЕ ПАРЫ
     # =====================================================
 
     for new_index, new_row in enumerate(
@@ -1360,7 +1348,7 @@ def format_schedule(
     parts = []
 
     # =====================================================
-    # БЛОК ОБНОВЛЕНИЙ
+    # БЛОК ИЗМЕНЕНИЙ
     # =====================================================
 
     if changes:
@@ -1547,6 +1535,90 @@ def save_state(state):
 
 
 # =========================================================
+# СОХРАНЕНИЕ ОБЩЕГО СОСТОЯНИЯ
+# =========================================================
+
+def build_state(
+    current_monday,
+    current_sunday,
+    next_monday,
+    next_sunday,
+    message_id,
+    current_rows,
+    next_rows
+):
+
+    return {
+        "format_version":
+            FORMAT_VERSION,
+
+        "current_week_start":
+            current_monday.isoformat(),
+
+        "current_week_end":
+            current_sunday.isoformat(),
+
+        "next_week_start":
+            next_monday.isoformat(),
+
+        "next_week_end":
+            next_sunday.isoformat(),
+
+        "message_id":
+            message_id,
+
+        "current_schedule":
+            current_rows,
+
+        "next_schedule":
+            next_rows,
+    }
+
+
+# =========================================================
+# ЗАМЕНА СООБЩЕНИЯ
+# =========================================================
+
+def replace_schedule_message(
+    text,
+    old_message_id
+):
+    """
+    Сначала отправляем новое сообщение.
+    Только после успешной отправки
+    пытаемся удалить старое.
+    """
+
+    new_message_id = (
+        send_schedule(
+            text
+        )
+    )
+
+    if old_message_id:
+
+        try:
+
+            delete_message(
+                old_message_id
+            )
+
+            print(
+                "Старое сообщение удалено."
+            )
+
+        except Exception as exc:
+
+            print(
+                "Новое сообщение отправлено, "
+                "но старое удалить не удалось:",
+                exc
+            )
+
+    return new_message_id
+
+
+# =========================================================
 # ОСНОВНАЯ ЛОГИКА
 # =========================================================
 
@@ -1585,7 +1657,7 @@ def main():
     )
 
     # =====================================================
-    # ПОЛУЧАЕМ РАСПИСАНИЕ
+    # ЗАГРУЖАЕМ САЙТ
     # =====================================================
 
     all_rows = fetch_schedule()
@@ -1601,7 +1673,6 @@ def main():
     # =====================================================
 
     current_rows = []
-
     next_rows = []
 
     for row in prepared:
@@ -1633,7 +1704,7 @@ def main():
             )
 
     # =====================================================
-    # СОСТОЯНИЕ
+    # ЗАГРУЖАЕМ STATE
     # =====================================================
 
     state = load_state()
@@ -1646,17 +1717,37 @@ def main():
         current_monday.isoformat()
     )
 
+    old_message_id = state.get(
+        "message_id"
+    )
+
     # =====================================================
-    # НОВЫЙ ПЕРИОД
-    #
-    # В субботу после 22:00 current_monday
-    # автоматически переключается.
+    # ПРОВЕРЯЕМ ВЕРСИЮ ОФОРМЛЕНИЯ
     # =====================================================
 
-    if (
-        saved_period
-        != current_period
-    ):
+    saved_format_version = state.get(
+        "format_version"
+    )
+
+    format_changed = (
+        saved_format_version
+        != FORMAT_VERSION
+    )
+
+    if format_changed:
+
+        print(
+            "Изменилась версия оформления:",
+            saved_format_version,
+            "->",
+            FORMAT_VERSION
+        )
+
+    # =====================================================
+    # НОВАЯ НЕДЕЛЯ
+    # =====================================================
+
+    if saved_period != current_period:
 
         print(
             "Публикуем новый двухнедельный период."
@@ -1670,78 +1761,86 @@ def main():
             changes=None,
         )
 
-        # Сначала отправляем новое сообщение.
-        new_message_id = send_schedule(
-            text
+        new_message_id = (
+            replace_schedule_message(
+                text,
+                old_message_id
+            )
         )
 
-        print(
-            "Новое сообщение:",
-            new_message_id
+        state = build_state(
+            current_monday,
+            current_sunday,
+            next_monday,
+            next_sunday,
+            new_message_id,
+            current_rows,
+            next_rows,
         )
-
-        old_message_id = state.get(
-            "message_id"
-        )
-
-        # Только потом удаляем старое.
-        if old_message_id:
-
-            try:
-
-                delete_message(
-                    old_message_id
-                )
-
-                print(
-                    "Старое сообщение удалено."
-                )
-
-            except Exception as exc:
-
-                print(
-                    "Не удалось удалить "
-                    "старое сообщение:",
-                    exc
-                )
-
-        state = {
-            "current_week_start":
-                current_monday.isoformat(),
-
-            "current_week_end":
-                current_sunday.isoformat(),
-
-            "next_week_start":
-                next_monday.isoformat(),
-
-            "next_week_end":
-                next_sunday.isoformat(),
-
-            "message_id":
-                new_message_id,
-
-            # Храним необъединённые строки
-            # для более точного сравнения.
-            "current_schedule":
-                current_rows,
-
-            "next_schedule":
-                next_rows,
-        }
 
         save_state(
             state
         )
 
         print(
-            "Новое расписание опубликовано."
+            "Новый период опубликован."
         )
 
         return
 
     # =====================================================
-    # ПРОВЕРЯЕМ ИЗМЕНЕНИЯ
+    # ИЗМЕНИЛОСЬ ТОЛЬКО ОФОРМЛЕНИЕ
+    #
+    # Например:
+    # добавили 📅, ⏭️, 📌 и т.д.
+    #
+    # Расписание при этом может быть тем же самым.
+    # =====================================================
+
+    if format_changed:
+
+        print(
+            "Принудительно обновляем сообщение "
+            "из-за нового оформления."
+        )
+
+        text = format_schedule(
+            current_rows,
+            next_rows,
+            current_monday,
+            next_monday,
+            changes=None,
+        )
+
+        new_message_id = (
+            replace_schedule_message(
+                text,
+                old_message_id
+            )
+        )
+
+        state = build_state(
+            current_monday,
+            current_sunday,
+            next_monday,
+            next_sunday,
+            new_message_id,
+            current_rows,
+            next_rows,
+        )
+
+        save_state(
+            state
+        )
+
+        print(
+            "Оформление сообщения обновлено."
+        )
+
+        return
+
+    # =====================================================
+    # ПРОВЕРЯЕМ ИЗМЕНЕНИЯ РАСПИСАНИЯ
     # =====================================================
 
     old_current = state.get(
@@ -1754,8 +1853,8 @@ def main():
         []
     )
 
-    # В текущей неделе изменения
-    # уже прошедших пар игнорируются.
+    # Уже прошедшие пары текущей недели
+    # не вызывают обновление.
     current_changes = find_changes(
         old_current,
         current_rows,
@@ -1763,7 +1862,7 @@ def main():
         ignore_past=True,
     )
 
-    # В следующей неделе отслеживаем всё.
+    # Следующая неделя сравнивается полностью.
     next_changes = find_changes(
         old_next,
         next_rows,
@@ -1789,7 +1888,7 @@ def main():
         return
 
     # =====================================================
-    # РАСПИСАНИЕ ИЗМЕНИЛОСЬ
+    # ЕСТЬ ИЗМЕНЕНИЯ
     # =====================================================
 
     print(
@@ -1814,68 +1913,22 @@ def main():
         changes=changes,
     )
 
-    # Сначала отправляем новую версию.
-    new_message_id = send_schedule(
-        text
+    new_message_id = (
+        replace_schedule_message(
+            text,
+            old_message_id
+        )
     )
 
-    print(
-        "Обновлённое сообщение:",
-        new_message_id
+    state = build_state(
+        current_monday,
+        current_sunday,
+        next_monday,
+        next_sunday,
+        new_message_id,
+        current_rows,
+        next_rows,
     )
-
-    old_message_id = state.get(
-        "message_id"
-    )
-
-    # И только после успешной отправки
-    # удаляем предыдущую.
-    if old_message_id:
-
-        try:
-
-            delete_message(
-                old_message_id
-            )
-
-            print(
-                "Старое сообщение удалено."
-            )
-
-        except Exception as exc:
-
-            print(
-                "Не удалось удалить "
-                "старое сообщение:",
-                exc
-            )
-
-    # =====================================================
-    # СОХРАНЯЕМ НОВОЕ СОСТОЯНИЕ
-    # =====================================================
-
-    state = {
-        "current_week_start":
-            current_monday.isoformat(),
-
-        "current_week_end":
-            current_sunday.isoformat(),
-
-        "next_week_start":
-            next_monday.isoformat(),
-
-        "next_week_end":
-            next_sunday.isoformat(),
-
-        "message_id":
-            new_message_id,
-
-        "current_schedule":
-            current_rows,
-
-        "next_schedule":
-            next_rows,
-    }
 
     save_state(
         state
