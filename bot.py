@@ -1,12 +1,16 @@
 import os
 import re
 import json
+import hashlib
 from html import escape
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
+
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 
 # =========================================================
@@ -18,24 +22,23 @@ URL = "https://spb.ranepa.ru/raspisanie/mo-3-24-01-06/"
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ[
+    "GOOGLE_SERVICE_ACCOUNT_JSON"
+]
+CALENDAR_ID = os.environ["CALENDAR_ID"]
+
 TARGET_GROUP = 3
+
 MOSCOW = ZoneInfo("Europe/Moscow")
 
 STATE_FILE = "state.json"
 
-# =========================================================
-# ВЕРСИЯ ОФОРМЛЕНИЯ
-#
-# Если в будущем поменяешь эмодзи, оформление,
-# заголовки и т.д. — просто увеличь:
-#
-# FORMAT_VERSION = 2
-# потом 3, 4...
-#
-# Бот один раз принудительно обновит сообщение.
-# =========================================================
+# Глубокий синий цвет событий Google Calendar
+CALENDAR_COLOR_ID = "9"
 
-FORMAT_VERSION = 1
+# Если снова меняем дизайн Telegram-сообщения,
+# увеличиваем число: 3, 4, 5...
+FORMAT_VERSION = 2
 
 
 DAY_NAMES = {
@@ -71,6 +74,7 @@ def group_matches(group_text):
     """
 
     text = clean(group_text)
+
     base = text.split("/")[0]
 
     match = re.search(
@@ -93,19 +97,18 @@ def group_matches(group_text):
 
 
 # =========================================================
-# ДВЕ НЕДЕЛИ
+# ОПРЕДЕЛЕНИЕ ДВУХ НЕДЕЛЬ
 # =========================================================
 
 def get_weeks(now):
     """
     До субботы 22:00:
-    текущая неделя = календарная текущая.
+        текущая = текущая календарная неделя
 
-    С субботы 22:00 МСК:
-    текущая неделя = неделя с ближайшего понедельника.
+    С субботы 22:00:
+        текущая = неделя с ближайшего понедельника
 
-    Воскресенье также уже относится
-    к новому двухнедельному периоду.
+    Всё воскресенье также уже используется новый период.
     """
 
     current_monday = (
@@ -113,18 +116,13 @@ def get_weeks(now):
         - timedelta(days=now.weekday())
     )
 
-    should_shift = False
-
     if (
         now.weekday() == 5
         and now.time() >= time(22, 0)
     ):
-        should_shift = True
+        current_monday += timedelta(days=7)
 
-    if now.weekday() == 6:
-        should_shift = True
-
-    if should_shift:
+    elif now.weekday() == 6:
         current_monday += timedelta(days=7)
 
     current_sunday = (
@@ -151,7 +149,7 @@ def get_weeks(now):
 
 
 # =========================================================
-# ЗАГРУЗКА РАСПИСАНИЯ
+# ПОЛУЧЕНИЕ РАСПИСАНИЯ
 # =========================================================
 
 def fetch_schedule():
@@ -175,15 +173,15 @@ def fetch_schedule():
 
     for table in soup.find_all("table"):
 
-        table_text = table.get_text(
+        text = table.get_text(
             " ",
             strip=True
         )
 
         if (
-            "Наименование дисциплины" in table_text
-            and "Группа" in table_text
-            and "Время" in table_text
+            "Наименование дисциплины" in text
+            and "Группа" in text
+            and "Время" in text
         ):
             schedule_table = table
             break
@@ -307,7 +305,7 @@ def normalize_lesson_type(value):
 
 
 # =========================================================
-# СПЕЦИАЛЬНЫЕ ДИСЦИПЛИНЫ
+# СПЕЦИАЛЬНЫЕ ПРЕДМЕТЫ
 # =========================================================
 
 def is_second_language(subject):
@@ -326,14 +324,12 @@ def is_english(subject):
 
     subject = clean(subject).lower()
 
-    variants = {
+    return subject in {
         "иностранный язык",
         "английский язык",
         "иностранный язык (английский)",
         "английский",
     }
-
-    return subject in variants
 
 
 def is_physical_education(subject):
@@ -349,7 +345,7 @@ def is_physical_education(subject):
 
 
 # =========================================================
-# ПОДГОТОВКА ДАННЫХ
+# ПОДГОТОВКА СТРОК
 # =========================================================
 
 def prepare_rows(
@@ -362,11 +358,9 @@ def prepare_rows(
 
     for row in rows:
 
-        lesson_date = (
-            datetime.fromisoformat(
-                row["date"]
-            ).date()
-        )
+        lesson_date = datetime.fromisoformat(
+            row["date"]
+        ).date()
 
         if not (
             period_start
@@ -377,10 +371,7 @@ def prepare_rows(
 
         subject = row["subject"]
 
-        # =================================================
-        # 2 ИНОСТРАННЫЙ
-        # =================================================
-
+        # 2 иностранный
         if is_second_language(subject):
 
             item = {
@@ -394,10 +385,7 @@ def prepare_rows(
                 "teacher": "",
             }
 
-        # =================================================
-        # АНГЛИЙСКИЙ
-        # =================================================
-
+        # Английский
         elif is_english(subject):
 
             item = {
@@ -411,20 +399,13 @@ def prepare_rows(
                 "teacher": "",
             }
 
-        # =================================================
-        # ФИЗРА
-        # =================================================
-
+        # Физра
         elif is_physical_education(subject):
 
             item = {
                 "date": row["date"],
-
-                # Настоящее время оставляем внутри,
-                # чтобы правильно отслеживать изменения.
                 "start": row["start"],
                 "end": row["end"],
-
                 "kind": "physical",
                 "subject": "Физра",
                 "lesson_type": "",
@@ -432,10 +413,7 @@ def prepare_rows(
                 "teacher": "",
             }
 
-        # =================================================
-        # ОБЫЧНАЯ ПАРА
-        # =================================================
-
+        # Обычная пара
         else:
 
             item = {
@@ -464,8 +442,6 @@ def prepare_rows(
                         row["room"]
                     ),
 
-                # Преподавателя в сообщении нет,
-                # но смена преподавателя отслеживается.
                 "teacher":
                     clean(
                         row["teacher"]
@@ -474,10 +450,7 @@ def prepare_rows(
 
         result.append(item)
 
-    # =====================================================
-    # УДАЛЕНИЕ ДУБЛЕЙ
-    # =====================================================
-
+    # Убираем дубли
     unique = {}
 
     for row in result:
@@ -537,10 +510,7 @@ def to_minutes(value):
         value.split(":")
     )
 
-    return (
-        hours * 60
-        + minutes
-    )
+    return hours * 60 + minutes
 
 
 def can_merge(a, b):
@@ -571,33 +541,18 @@ def can_merge(a, b):
         ):
             return False
 
-    # Соседние официальные слоты
     if (
         a["end"],
         b["start"]
     ) in OFFICIAL_ADJACENCY:
         return True
 
-    previous_end = (
-        to_minutes(
-            a["end"]
-        )
-    )
-
-    next_start = (
-        to_minutes(
-            b["start"]
-        )
-    )
-
     gap = (
-        next_start
-        - previous_end
+        to_minutes(b["start"])
+        - to_minutes(a["end"])
     )
 
-    return (
-        0 <= gap <= 30
-    )
+    return 0 <= gap <= 30
 
 
 def merge_lessons(rows):
@@ -619,11 +574,7 @@ def merge_lessons(rows):
         current = row.copy()
 
         if not merged:
-
-            merged.append(
-                current
-            )
-
+            merged.append(current)
             continue
 
         previous = merged[-1]
@@ -652,7 +603,6 @@ def merge_lessons(rows):
 
 def display_start(row):
 
-    # Физра всегда пишется с 09:00.
     if row["kind"] == "physical":
         return "09:00"
 
@@ -669,22 +619,19 @@ def display_time_range(row):
 
 
 # =========================================================
-# ФОРМАТ ПАРЫ
+# TELEGRAM — ПАРА
 # =========================================================
 
 def format_lesson(row):
 
-    time_text = (
-        display_time_range(
-            row
-        )
+    time_text = display_time_range(
+        row
     )
 
     subject = escape(
         row["subject"]
     )
 
-    # Английский
     if row["kind"] == "english":
 
         return (
@@ -692,18 +639,13 @@ def format_lesson(row):
             f'<b>Английский язык</b>'
         )
 
-    # Второй иностранный
-    if (
-        row["kind"]
-        == "second_language"
-    ):
+    if row["kind"] == "second_language":
 
         return (
             f'⏰ {time_text} — '
             f'<b>2 иностранный</b>'
         )
 
-    # Физра
     if row["kind"] == "physical":
 
         return (
@@ -711,24 +653,16 @@ def format_lesson(row):
             f'<b>Физра</b> · стадион'
         )
 
-    lesson_type = escape(
-        row["lesson_type"]
-    )
-
-    room = escape(
-        row["room"]
-    )
-
     return (
         f'⏰ {time_text} — '
         f'<b>{subject}</b>'
-        f' · {lesson_type}'
-        f' · {room}'
+        f' · {escape(row["lesson_type"])}'
+        f' · {escape(row["room"])}'
     )
 
 
 # =========================================================
-# ФОРМАТ НЕДЕЛИ
+# TELEGRAM — НЕДЕЛЯ
 # =========================================================
 
 def format_week(
@@ -751,15 +685,10 @@ def format_week(
     by_date = {}
 
     for row in rows:
-
         by_date.setdefault(
             row["date"],
             []
         ).append(row)
-
-    # =====================================================
-    # РАСПИСАНИЕ ЕЩЁ НЕ ОПУБЛИКОВАНО
-    # =====================================================
 
     if not rows:
 
@@ -773,17 +702,10 @@ def format_week(
             f'Расписание пока не опубликовано'
         )
 
-    # =====================================================
-    # ПН-СБ ИЛИ ПН-ВС
-    # =====================================================
-
     if sunday.isoformat() in by_date:
-
         display_end = sunday
         number_of_days = 7
-
     else:
-
         display_end = saturday
         number_of_days = 6
 
@@ -831,7 +753,6 @@ def format_week(
             )
 
             for lesson in lessons:
-
                 block.append(
                     format_lesson(
                         lesson
@@ -839,7 +760,6 @@ def format_week(
                 )
 
         else:
-
             block.append(
                 "Нет занятий"
             )
@@ -857,41 +777,24 @@ def format_week(
 # ПРОШЕДШАЯ ЛИ ПАРА
 # =========================================================
 
-def lesson_is_past(
-    row,
-    now
-):
+def lesson_is_past(row, now):
 
-    lesson_date = (
-        datetime.fromisoformat(
-            row["date"]
-        ).date()
+    lesson_date = datetime.fromisoformat(
+        row["date"]
+    ).date()
+
+    end_time = datetime.strptime(
+        row["end"],
+        "%H:%M"
+    ).time()
+
+    lesson_end = datetime.combine(
+        lesson_date,
+        end_time,
+        tzinfo=MOSCOW,
     )
 
-    try:
-
-        end_time = (
-            datetime.strptime(
-                row["end"],
-                "%H:%M"
-            ).time()
-        )
-
-    except ValueError:
-
-        return False
-
-    lesson_end = (
-        datetime.combine(
-            lesson_date,
-            end_time,
-            tzinfo=MOSCOW,
-        )
-    )
-
-    return (
-        lesson_end < now
-    )
+    return lesson_end < now
 
 
 def comparison_rows(
@@ -923,55 +826,26 @@ def comparison_rows(
 
 
 # =========================================================
-# ДАТА ДЛЯ БЛОКА ИЗМЕНЕНИЙ
+# ОПИСАНИЕ ИЗМЕНЕНИЙ
 # =========================================================
 
 def pretty_date(iso_date):
 
-    date_obj = (
-        datetime.fromisoformat(
-            iso_date
-        ).date()
-    )
-
-    return (
-        date_obj.strftime(
-            "%d.%m"
-        )
-    )
+    return datetime.fromisoformat(
+        iso_date
+    ).strftime("%d.%m")
 
 
 def lesson_brief(row):
 
-    subject = escape(
-        row["subject"]
-    )
-
-    date_text = pretty_date(
-        row["date"]
-    )
-
-    time_text = (
-        display_time_range(
-            row
-        )
-    )
-
     return (
-        f'<b>{subject}</b>'
-        f' · {date_text}'
-        f' · {time_text}'
+        f'<b>{escape(row["subject"])}</b>'
+        f' · {pretty_date(row["date"])}'
+        f' · {display_time_range(row)}'
     )
 
 
-# =========================================================
-# ИЗМЕНЕНИЯ ПАРЫ
-# =========================================================
-
-def metadata_changes(
-    old,
-    new
-):
+def metadata_changes(old, new):
 
     changes = []
 
@@ -983,16 +857,11 @@ def metadata_changes(
         new["date"]
     )
 
-    time_text = (
-        display_time_range(
-            new
-        )
+    time_text = display_time_range(
+        new
     )
 
-    # =====================================================
-    # АУДИТОРИЯ
-    # =====================================================
-
+    # Аудитория
     if (
         old["kind"] == "normal"
         and new["kind"] == "normal"
@@ -1022,11 +891,7 @@ def metadata_changes(
             == "кабинет не указан"
         )
 
-        # Добавлена аудитория
-        if (
-            old_missing
-            and not new_missing
-        ):
+        if old_missing and not new_missing:
 
             changes.append(
                 f'📍 Добавлена аудитория: '
@@ -1036,7 +901,6 @@ def metadata_changes(
                 f' · {time_text}'
             )
 
-        # Убрана аудитория
         elif (
             not old_missing
             and new_missing
@@ -1049,11 +913,7 @@ def metadata_changes(
                 f' · {time_text}'
             )
 
-        # Аудитория изменена
-        elif (
-            not old_missing
-            and not new_missing
-        ):
+        else:
 
             changes.append(
                 f'📍 Изменена аудитория: '
@@ -1064,21 +924,12 @@ def metadata_changes(
                 f' · {time_text}'
             )
 
-    # =====================================================
-    # ТИП ЗАНЯТИЯ
-    # =====================================================
-
+    # Тип занятия
     if (
         old["kind"] == "normal"
         and new["kind"] == "normal"
-        and old.get(
-            "lesson_type",
-            ""
-        )
-        != new.get(
-            "lesson_type",
-            ""
-        )
+        and old.get("lesson_type", "")
+        != new.get("lesson_type", "")
     ):
 
         changes.append(
@@ -1092,21 +943,12 @@ def metadata_changes(
             f' · {time_text}'
         )
 
-    # =====================================================
-    # ПРЕПОДАВАТЕЛЬ
-    # =====================================================
-
+    # Преподаватель
     if (
         old["kind"] == "normal"
         and new["kind"] == "normal"
-        and old.get(
-            "teacher",
-            ""
-        )
-        != new.get(
-            "teacher",
-            ""
-        )
+        and old.get("teacher", "")
+        != new.get("teacher", "")
     ):
 
         changes.append(
@@ -1118,10 +960,6 @@ def metadata_changes(
 
     return changes
 
-
-# =========================================================
-# ПОИСК ИЗМЕНЕНИЙ
-# =========================================================
 
 def find_changes(
     old_rows,
@@ -1147,22 +985,15 @@ def find_changes(
 
     changes = []
 
-    # =====================================================
-    # 1. ТА ЖЕ ПАРА, ТО ЖЕ ВРЕМЯ
-    # =====================================================
+    # Та же пара, то же время
+    for oi, old_row in enumerate(old):
 
-    for old_index, old_row in enumerate(
-        old
-    ):
+        for ni, new_row in enumerate(new):
 
-        for new_index, new_row in enumerate(
-            new
-        ):
-
-            if new_index in matched_new:
+            if ni in matched_new:
                 continue
 
-            same_base = (
+            same = (
                 old_row["date"]
                 == new_row["date"]
 
@@ -1179,16 +1010,11 @@ def find_changes(
                 == new_row["subject"]
             )
 
-            if not same_base:
+            if not same:
                 continue
 
-            matched_old.add(
-                old_index
-            )
-
-            matched_new.add(
-                new_index
-            )
+            matched_old.add(oi)
+            matched_new.add(ni)
 
             changes.extend(
                 metadata_changes(
@@ -1199,27 +1025,20 @@ def find_changes(
 
             break
 
-    # =====================================================
-    # 2. ИЗМЕНИЛОСЬ ВРЕМЯ
-    # =====================================================
+    # Изменение времени
+    for oi, old_row in enumerate(old):
 
-    for old_index, old_row in enumerate(
-        old
-    ):
-
-        if old_index in matched_old:
+        if oi in matched_old:
             continue
 
         candidates = []
 
-        for new_index, new_row in enumerate(
-            new
-        ):
+        for ni, new_row in enumerate(new):
 
-            if new_index in matched_new:
+            if ni in matched_new:
                 continue
 
-            same_lesson = (
+            if (
                 old_row["date"]
                 == new_row["date"]
 
@@ -1228,57 +1047,33 @@ def find_changes(
 
                 and old_row["subject"]
                 == new_row["subject"]
-            )
-
-            if same_lesson:
+            ):
 
                 candidates.append(
-                    (
-                        new_index,
-                        new_row
-                    )
+                    (ni, new_row)
                 )
 
         if len(candidates) == 1:
 
-            new_index, new_row = (
-                candidates[0]
+            ni, new_row = candidates[0]
+
+            matched_old.add(oi)
+            matched_new.add(ni)
+
+            old_time = display_time_range(
+                old_row
             )
 
-            matched_old.add(
-                old_index
-            )
-
-            matched_new.add(
-                new_index
-            )
-
-            subject = escape(
-                new_row["subject"]
-            )
-
-            date_text = pretty_date(
-                new_row["date"]
-            )
-
-            old_time = (
-                display_time_range(
-                    old_row
-                )
-            )
-
-            new_time = (
-                display_time_range(
-                    new_row
-                )
+            new_time = display_time_range(
+                new_row
             )
 
             if old_time != new_time:
 
                 changes.append(
                     f'⏰ Изменено время: '
-                    f'<b>{subject}</b>'
-                    f' · {date_text}'
+                    f'<b>{escape(new_row["subject"])}</b>'
+                    f' · {pretty_date(new_row["date"])}'
                     f' · {old_time}'
                     f' → {new_time}'
                 )
@@ -1290,43 +1085,31 @@ def find_changes(
                 )
             )
 
-    # =====================================================
-    # 3. УБРАННЫЕ ПАРЫ
-    # =====================================================
+    # Удалённые пары
+    for oi, old_row in enumerate(old):
 
-    for old_index, old_row in enumerate(
-        old
-    ):
+        if oi not in matched_old:
 
-        if old_index in matched_old:
-            continue
+            changes.append(
+                f'❌ Убрана пара: '
+                f'{lesson_brief(old_row)}'
+            )
 
-        changes.append(
-            f'❌ Убрана пара: '
-            f'{lesson_brief(old_row)}'
-        )
+    # Новые пары
+    for ni, new_row in enumerate(new):
 
-    # =====================================================
-    # 4. ДОБАВЛЕННЫЕ ПАРЫ
-    # =====================================================
+        if ni not in matched_new:
 
-    for new_index, new_row in enumerate(
-        new
-    ):
-
-        if new_index in matched_new:
-            continue
-
-        changes.append(
-            f'🆕 Добавлена пара: '
-            f'{lesson_brief(new_row)}'
-        )
+            changes.append(
+                f'🆕 Добавлена пара: '
+                f'{lesson_brief(new_row)}'
+            )
 
     return changes
 
 
 # =========================================================
-# ФОРМАТ ВСЕГО СООБЩЕНИЯ
+# TELEGRAM — ПОЛНОЕ СООБЩЕНИЕ
 # =========================================================
 
 def format_schedule(
@@ -1347,10 +1130,6 @@ def format_schedule(
 
     parts = []
 
-    # =====================================================
-    # БЛОК ИЗМЕНЕНИЙ
-    # =====================================================
-
     if changes:
 
         parts.append(
@@ -1359,18 +1138,12 @@ def format_schedule(
 
         parts.append(
             '<b>Что изменилось:</b>\n\n'
-            + "\n".join(
-                changes
-            )
+            + "\n".join(changes)
         )
 
         parts.append(
             "━━━━━━━━━━━━━"
         )
-
-    # =====================================================
-    # ТЕКУЩАЯ НЕДЕЛЯ
-    # =====================================================
 
     parts.append(
         format_week(
@@ -1381,17 +1154,9 @@ def format_schedule(
         )
     )
 
-    # =====================================================
-    # РАЗДЕЛИТЕЛЬ
-    # =====================================================
-
     parts.append(
         "━━━━━━━━━━━━━"
     )
-
-    # =====================================================
-    # СЛЕДУЮЩАЯ НЕДЕЛЯ
-    # =====================================================
 
     parts.append(
         format_week(
@@ -1408,7 +1173,7 @@ def format_schedule(
 
 
 # =========================================================
-# TELEGRAM
+# TELEGRAM API
 # =========================================================
 
 def telegram_request(
@@ -1434,11 +1199,10 @@ def telegram_request(
     if not result.get("ok"):
 
         raise RuntimeError(
-            "Telegram error: "
-            + str(
+            str(
                 result.get(
                     "description",
-                    "unknown error"
+                    "Telegram error"
                 )
             )
         )
@@ -1465,18 +1229,14 @@ def send_schedule(text):
         },
     )
 
-    return (
-        result[
-            "result"
-        ][
-            "message_id"
-        ]
-    )
+    return result[
+        "result"
+    ][
+        "message_id"
+    ]
 
 
-def delete_message(
-    message_id
-):
+def delete_message(message_id):
 
     telegram_request(
         "deleteMessage",
@@ -1487,6 +1247,542 @@ def delete_message(
             "message_id":
                 message_id,
         },
+    )
+
+
+def replace_schedule_message(
+    text,
+    old_message_id
+):
+
+    new_message_id = send_schedule(
+        text
+    )
+
+    if old_message_id:
+
+        try:
+
+            delete_message(
+                old_message_id
+            )
+
+        except Exception as exc:
+
+            print(
+                "Старое сообщение "
+                "не удалось удалить:",
+                exc
+            )
+
+    return new_message_id
+
+
+# =========================================================
+# GOOGLE CALENDAR
+# =========================================================
+
+def get_calendar_service():
+
+    service_account_info = json.loads(
+        GOOGLE_SERVICE_ACCOUNT_JSON
+    )
+
+    credentials = (
+        service_account
+        .Credentials
+        .from_service_account_info(
+            service_account_info,
+            scopes=[
+                "https://www.googleapis.com/auth/calendar"
+            ],
+        )
+    )
+
+    return build(
+        "calendar",
+        "v3",
+        credentials=credentials,
+        cache_discovery=False,
+    )
+
+
+def calendar_location(row):
+
+    if row["kind"] == "physical":
+        return "стадион"
+
+    if row["kind"] in {
+        "english",
+        "second_language",
+    }:
+        return ""
+
+    room = row.get(
+        "room",
+        ""
+    )
+
+    if room == "кабинет не указан":
+        return ""
+
+    return room
+
+
+def calendar_lesson_uid(
+    row,
+    occurrence
+):
+    """
+    Идентификатор не зависит от времени и аудитории.
+
+    Поэтому при переносе или смене аудитории
+    обновляется существующее событие,
+    а не появляется дубль.
+    """
+
+    source = (
+        f'{row["date"]}|'
+        f'{row["kind"]}|'
+        f'{row["subject"]}|'
+        f'{occurrence}'
+    )
+
+    return hashlib.sha1(
+        source.encode("utf-8")
+    ).hexdigest()
+
+
+def build_calendar_events(rows):
+
+    merged = merge_lessons(
+        rows
+    )
+
+    merged = sorted(
+        merged,
+        key=lambda x: (
+            x["date"],
+            x["subject"],
+            x["start"],
+        )
+    )
+
+    counters = {}
+
+    desired = {}
+
+    for row in merged:
+
+        base = (
+            row["date"],
+            row["kind"],
+            row["subject"],
+        )
+
+        counters[base] = (
+            counters.get(base, 0)
+            + 1
+        )
+
+        occurrence = counters[
+            base
+        ]
+
+        lesson_uid = (
+            calendar_lesson_uid(
+                row,
+                occurrence
+            )
+        )
+
+        lesson_date = (
+            datetime.fromisoformat(
+                row["date"]
+            ).date()
+        )
+
+        start_time = datetime.strptime(
+            display_start(row),
+            "%H:%M"
+        ).time()
+
+        end_time = datetime.strptime(
+            row["end"],
+            "%H:%M"
+        ).time()
+
+        start_dt = datetime.combine(
+            lesson_date,
+            start_time,
+            tzinfo=MOSCOW,
+        )
+
+        end_dt = datetime.combine(
+            lesson_date,
+            end_time,
+            tzinfo=MOSCOW,
+        )
+
+        body = {
+            "summary":
+                row["subject"],
+
+            "location":
+                calendar_location(row),
+
+            "start": {
+                "dateTime":
+                    start_dt.isoformat(),
+
+                "timeZone":
+                    "Europe/Moscow",
+            },
+
+            "end": {
+                "dateTime":
+                    end_dt.isoformat(),
+
+                "timeZone":
+                    "Europe/Moscow",
+            },
+
+            "colorId":
+                CALENDAR_COLOR_ID,
+
+            "reminders": {
+                "useDefault": True
+            },
+
+            "extendedProperties": {
+                "private": {
+                    "ranepa_schedule_bot":
+                        "true",
+
+                    "lesson_uid":
+                        lesson_uid,
+                }
+            },
+        }
+
+        desired[
+            lesson_uid
+        ] = body
+
+    return desired
+
+
+def get_existing_calendar_events(
+    service,
+    period_start,
+    period_end
+):
+
+    time_min = datetime.combine(
+        period_start,
+        time.min,
+        tzinfo=MOSCOW,
+    ).isoformat()
+
+    # timeMax не включается,
+    # поэтому берём следующий день
+    time_max = datetime.combine(
+        period_end
+        + timedelta(days=1),
+        time.min,
+        tzinfo=MOSCOW,
+    ).isoformat()
+
+    events = []
+
+    page_token = None
+
+    while True:
+
+        result = (
+            service.events()
+            .list(
+                calendarId=
+                    CALENDAR_ID,
+
+                timeMin=
+                    time_min,
+
+                timeMax=
+                    time_max,
+
+                singleEvents=
+                    True,
+
+                showDeleted=
+                    False,
+
+                maxResults=
+                    2500,
+
+                pageToken=
+                    page_token,
+
+                privateExtendedProperty=
+                    "ranepa_schedule_bot=true",
+            )
+            .execute()
+        )
+
+        events.extend(
+            result.get(
+                "items",
+                []
+            )
+        )
+
+        page_token = (
+            result.get(
+                "nextPageToken"
+            )
+        )
+
+        if not page_token:
+            break
+
+    return events
+
+
+def event_changed(
+    existing,
+    desired
+):
+
+    existing_private = (
+        existing
+        .get(
+            "extendedProperties",
+            {}
+        )
+        .get(
+            "private",
+            {}
+        )
+    )
+
+    desired_private = (
+        desired[
+            "extendedProperties"
+        ][
+            "private"
+        ]
+    )
+
+    return (
+        existing.get(
+            "summary",
+            ""
+        )
+        != desired.get(
+            "summary",
+            ""
+        )
+
+        or existing.get(
+            "location",
+            ""
+        )
+        != desired.get(
+            "location",
+            ""
+        )
+
+        or str(
+            existing.get(
+                "colorId",
+                ""
+            )
+        )
+        != str(
+            desired.get(
+                "colorId",
+                ""
+            )
+        )
+
+        or existing.get(
+            "start",
+            {}
+        ).get(
+            "dateTime",
+            ""
+        )
+        != desired.get(
+            "start",
+            {}
+        ).get(
+            "dateTime",
+            ""
+        )
+
+        or existing.get(
+            "end",
+            {}
+        ).get(
+            "dateTime",
+            ""
+        )
+        != desired.get(
+            "end",
+            {}
+        ).get(
+            "dateTime",
+            ""
+        )
+
+        or existing_private.get(
+            "lesson_uid"
+        )
+        != desired_private.get(
+            "lesson_uid"
+        )
+    )
+
+
+def sync_google_calendar(
+    current_rows,
+    next_rows,
+    current_monday,
+    next_sunday
+):
+
+    print(
+        "Синхронизация Google Calendar..."
+    )
+
+    service = (
+        get_calendar_service()
+    )
+
+    desired = build_calendar_events(
+        current_rows
+        + next_rows
+    )
+
+    existing_events = (
+        get_existing_calendar_events(
+            service,
+            current_monday,
+            next_sunday,
+        )
+    )
+
+    existing_by_uid = {}
+
+    for event in existing_events:
+
+        private = (
+            event
+            .get(
+                "extendedProperties",
+                {}
+            )
+            .get(
+                "private",
+                {}
+            )
+        )
+
+        lesson_uid = private.get(
+            "lesson_uid"
+        )
+
+        if lesson_uid:
+            existing_by_uid[
+                lesson_uid
+            ] = event
+
+    created = 0
+    updated = 0
+    deleted = 0
+
+    # =====================================================
+    # СОЗДАЁМ И ОБНОВЛЯЕМ
+    # =====================================================
+
+    for lesson_uid, body in desired.items():
+
+        existing = existing_by_uid.get(
+            lesson_uid
+        )
+
+        # Новая пара
+        if existing is None:
+
+            (
+                service.events()
+                .insert(
+                    calendarId=
+                        CALENDAR_ID,
+
+                    body=
+                        body,
+                )
+                .execute()
+            )
+
+            created += 1
+
+            continue
+
+        # Изменилась существующая пара
+        if event_changed(
+            existing,
+            body
+        ):
+
+            (
+                service.events()
+                .update(
+                    calendarId=
+                        CALENDAR_ID,
+
+                    eventId=
+                        existing["id"],
+
+                    body=
+                        body,
+                )
+                .execute()
+            )
+
+            updated += 1
+
+    # =====================================================
+    # УДАЛЯЕМ ПАРЫ, КОТОРЫХ БОЛЬШЕ НЕТ
+    # =====================================================
+
+    for lesson_uid, event in (
+        existing_by_uid.items()
+    ):
+
+        if lesson_uid in desired:
+            continue
+
+        (
+            service.events()
+            .delete(
+                calendarId=
+                    CALENDAR_ID,
+
+                eventId=
+                    event["id"],
+            )
+            .execute()
+        )
+
+        deleted += 1
+
+    print(
+        "Google Calendar:",
+        f"добавлено {created},",
+        f"изменено {updated},",
+        f"удалено {deleted}"
     )
 
 
@@ -1534,10 +1830,6 @@ def save_state(state):
         )
 
 
-# =========================================================
-# СОХРАНЕНИЕ ОБЩЕГО СОСТОЯНИЯ
-# =========================================================
-
 def build_state(
     current_monday,
     current_sunday,
@@ -1545,7 +1837,7 @@ def build_state(
     next_sunday,
     message_id,
     current_rows,
-    next_rows
+    next_rows,
 ):
 
     return {
@@ -1573,49 +1865,6 @@ def build_state(
         "next_schedule":
             next_rows,
     }
-
-
-# =========================================================
-# ЗАМЕНА СООБЩЕНИЯ
-# =========================================================
-
-def replace_schedule_message(
-    text,
-    old_message_id
-):
-    """
-    Сначала отправляем новое сообщение.
-    Только после успешной отправки
-    пытаемся удалить старое.
-    """
-
-    new_message_id = (
-        send_schedule(
-            text
-        )
-    )
-
-    if old_message_id:
-
-        try:
-
-            delete_message(
-                old_message_id
-            )
-
-            print(
-                "Старое сообщение удалено."
-            )
-
-        except Exception as exc:
-
-            print(
-                "Новое сообщение отправлено, "
-                "но старое удалить не удалось:",
-                exc
-            )
-
-    return new_message_id
 
 
 # =========================================================
@@ -1657,7 +1906,7 @@ def main():
     )
 
     # =====================================================
-    # ЗАГРУЖАЕМ САЙТ
+    # ЗАГРУЖАЕМ РАСПИСАНИЕ
     # =====================================================
 
     all_rows = fetch_schedule()
@@ -1667,10 +1916,6 @@ def main():
         current_monday,
         next_sunday,
     )
-
-    # =====================================================
-    # РАЗДЕЛЯЕМ НА ДВЕ НЕДЕЛИ
-    # =====================================================
 
     current_rows = []
     next_rows = []
@@ -1704,17 +1949,17 @@ def main():
             )
 
     # =====================================================
-    # ЗАГРУЖАЕМ STATE
+    # СОСТОЯНИЕ
     # =====================================================
 
     state = load_state()
 
-    saved_period = state.get(
-        "current_week_start"
-    )
-
     current_period = (
         current_monday.isoformat()
+    )
+
+    saved_period = state.get(
+        "current_week_start"
     )
 
     old_message_id = state.get(
@@ -1722,35 +1967,82 @@ def main():
     )
 
     # =====================================================
-    # ПРОВЕРЯЕМ ВЕРСИЮ ОФОРМЛЕНИЯ
+    # ЗАЩИТА ОТ ВНЕЗАПНО ПУСТОЙ НЕДЕЛИ
+    #
+    # Если раньше расписание было, а сайт внезапно
+    # отдал пустую неделю, старые данные пока сохраняем.
     # =====================================================
 
-    saved_format_version = state.get(
-        "format_version"
-    )
-
-    format_changed = (
-        saved_format_version
-        != FORMAT_VERSION
-    )
-
-    if format_changed:
+    if (
+        saved_period
+        == current_period
+        and not current_rows
+        and state.get(
+            "current_schedule"
+        )
+    ):
 
         print(
-            "Изменилась версия оформления:",
-            saved_format_version,
-            "->",
-            FORMAT_VERSION
+            "Текущая неделя внезапно пустая. "
+            "Используем сохранённую версию."
+        )
+
+        current_rows = state[
+            "current_schedule"
+        ]
+
+    if (
+        state.get(
+            "next_week_start"
+        )
+        == next_monday.isoformat()
+        and not next_rows
+        and state.get(
+            "next_schedule"
+        )
+    ):
+
+        print(
+            "Следующая неделя внезапно пустая. "
+            "Используем сохранённую версию."
+        )
+
+        next_rows = state[
+            "next_schedule"
+        ]
+
+    # =====================================================
+    # GOOGLE CALENDAR
+    #
+    # Синхронизируется при КАЖДОМ запуске.
+    # =====================================================
+
+    try:
+
+        sync_google_calendar(
+            current_rows,
+            next_rows,
+            current_monday,
+            next_sunday,
+        )
+
+    except Exception as exc:
+
+        # Telegram продолжит работать,
+        # даже если Google временно недоступен.
+        print(
+            "ОШИБКА GOOGLE CALENDAR:",
+            repr(exc)
         )
 
     # =====================================================
-    # НОВАЯ НЕДЕЛЯ
+    # НОВЫЙ ДВУХНЕДЕЛЬНЫЙ ПЕРИОД
     # =====================================================
 
     if saved_period != current_period:
 
         print(
-            "Публикуем новый двухнедельный период."
+            "Публикуем новый период."
         )
 
         text = format_schedule(
@@ -1768,40 +2060,33 @@ def main():
             )
         )
 
-        state = build_state(
-            current_monday,
-            current_sunday,
-            next_monday,
-            next_sunday,
-            new_message_id,
-            current_rows,
-            next_rows,
-        )
-
         save_state(
-            state
-        )
-
-        print(
-            "Новый период опубликован."
+            build_state(
+                current_monday,
+                current_sunday,
+                next_monday,
+                next_sunday,
+                new_message_id,
+                current_rows,
+                next_rows,
+            )
         )
 
         return
 
     # =====================================================
-    # ИЗМЕНИЛОСЬ ТОЛЬКО ОФОРМЛЕНИЕ
-    #
-    # Например:
-    # добавили 📅, ⏭️, 📌 и т.д.
-    #
-    # Расписание при этом может быть тем же самым.
+    # НОВОЕ ОФОРМЛЕНИЕ
     # =====================================================
 
-    if format_changed:
+    if (
+        state.get(
+            "format_version"
+        )
+        != FORMAT_VERSION
+    ):
 
         print(
-            "Принудительно обновляем сообщение "
-            "из-за нового оформления."
+            "Обновляем оформление."
         )
 
         text = format_schedule(
@@ -1819,52 +2104,39 @@ def main():
             )
         )
 
-        state = build_state(
-            current_monday,
-            current_sunday,
-            next_monday,
-            next_sunday,
-            new_message_id,
-            current_rows,
-            next_rows,
-        )
-
         save_state(
-            state
-        )
-
-        print(
-            "Оформление сообщения обновлено."
+            build_state(
+                current_monday,
+                current_sunday,
+                next_monday,
+                next_sunday,
+                new_message_id,
+                current_rows,
+                next_rows,
+            )
         )
 
         return
 
     # =====================================================
-    # ПРОВЕРЯЕМ ИЗМЕНЕНИЯ РАСПИСАНИЯ
+    # ИЗМЕНЕНИЯ РАСПИСАНИЯ
     # =====================================================
 
-    old_current = state.get(
-        "current_schedule",
-        []
-    )
-
-    old_next = state.get(
-        "next_schedule",
-        []
-    )
-
-    # Уже прошедшие пары текущей недели
-    # не вызывают обновление.
     current_changes = find_changes(
-        old_current,
+        state.get(
+            "current_schedule",
+            []
+        ),
         current_rows,
         now,
         ignore_past=True,
     )
 
-    # Следующая неделя сравнивается полностью.
     next_changes = find_changes(
-        old_next,
+        state.get(
+            "next_schedule",
+            []
+        ),
         next_rows,
         now,
         ignore_past=False,
@@ -1875,35 +2147,17 @@ def main():
         + next_changes
     )
 
-    # =====================================================
-    # НИЧЕГО НЕ ИЗМЕНИЛОСЬ
-    # =====================================================
-
     if not changes:
 
         print(
-            "Изменений нет."
+            "Изменений расписания нет."
         )
 
         return
 
-    # =====================================================
-    # ЕСТЬ ИЗМЕНЕНИЯ
-    # =====================================================
-
     print(
-        "Обнаружены изменения:"
+        "Расписание изменилось."
     )
-
-    for change in changes:
-
-        print(
-            re.sub(
-                r"<[^>]+>",
-                "",
-                change
-            )
-        )
 
     text = format_schedule(
         current_rows,
@@ -1920,22 +2174,20 @@ def main():
         )
     )
 
-    state = build_state(
-        current_monday,
-        current_sunday,
-        next_monday,
-        next_sunday,
-        new_message_id,
-        current_rows,
-        next_rows,
-    )
-
     save_state(
-        state
+        build_state(
+            current_monday,
+            current_sunday,
+            next_monday,
+            next_sunday,
+            new_message_id,
+            current_rows,
+            next_rows,
+        )
     )
 
     print(
-        "Обновлённое расписание опубликовано."
+        "Готово."
     )
 
 
