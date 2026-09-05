@@ -1669,7 +1669,13 @@ def build_calendar_events(rows):
                 CALENDAR_COLOR_ID,
 
             "reminders": {
-                "useDefault": True
+                "useDefault": False,
+                "overrides": [
+                    {
+                        "method": "popup",
+                        "minutes": 60
+                    }
+                ]
             },
 
             "extendedProperties": {
