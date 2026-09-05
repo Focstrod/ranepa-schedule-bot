@@ -1,10 +1,10 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "current_week_start": "2026-09-07",
   "current_week_end": "2026-09-13",
   "next_week_start": "2026-09-14",
   "next_week_end": "2026-09-20",
-  "message_id": 87,
+  "message_id": 88,
   "current_schedule": [
     {
       "date": "2026-09-07",
