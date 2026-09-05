@@ -26,6 +26,8 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
         run: python bot.py
 
       - name: Save bot state
