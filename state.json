@@ -4,7 +4,7 @@
   "current_week_end": "2026-09-20",
   "next_week_start": "2026-09-21",
   "next_week_end": "2026-09-27",
-  "message_id": 332,
+  "message_id": 393,
   "current_schedule": [
     {
       "date": "2026-09-14",
@@ -35,7 +35,7 @@
       "kind": "normal",
       "subject": "Мировая экономика",
       "lesson_type": "семинар",
-      "room": "кабинет не указан",
+      "room": "108",
       "address": "Тучков",
       "teacher": "Мисько Олег Николаевич"
     },
@@ -46,7 +46,7 @@
       "kind": "normal",
       "subject": "Основы национальной безопасности",
       "lesson_type": "семинар",
-      "room": "кабинет не указан",
+      "room": "308",
       "address": "Тучков",
       "teacher": "Тубанова Юлия Борисовна"
     },
