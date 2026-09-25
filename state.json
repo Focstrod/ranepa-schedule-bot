@@ -4,7 +4,7 @@
   "current_week_end": "2026-09-27",
   "next_week_start": "2026-09-28",
   "next_week_end": "2026-10-04",
-  "message_id": 628,
+  "message_id": 635,
   "current_schedule": [
     {
       "date": "2026-09-21",
@@ -96,8 +96,8 @@
     },
     {
       "date": "2026-09-26",
-      "start": "13:30",
-      "end": "16:20",
+      "start": "12:00",
+      "end": "14:50",
       "kind": "normal",
       "subject": "Введение в цели устойчивого развития (на английском языке)",
       "lesson_type": "лекция",
