@@ -1,10 +1,9 @@
 {
-  "schema_version": 2,
   "current_week_start": "2026-09-28",
   "current_week_end": "2026-10-04",
   "next_week_start": "2026-10-05",
   "next_week_end": "2026-10-11",
-  "message_id": 797,
+  "message_id": 834,
   "current_schedule": [
     {
       "date": "2026-09-28",
@@ -98,7 +97,7 @@
       "date": "2026-10-02",
       "start": "08:30",
       "end": "11:20",
-      "kind": "second_language_grouped",
+      "kind": "second_language",
       "subject": "2 иностранный",
       "lesson_type": "",
       "room": "",
@@ -210,7 +209,7 @@
       "date": "2026-10-09",
       "start": "08:30",
       "end": "11:20",
-      "kind": "second_language_grouped",
+      "kind": "second_language",
       "subject": "2 иностранный",
       "lesson_type": "",
       "room": "",
