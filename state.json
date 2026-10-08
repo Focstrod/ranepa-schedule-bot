@@ -3,7 +3,7 @@
   "current_week_end": "2026-10-11",
   "next_week_start": "2026-10-12",
   "next_week_end": "2026-10-18",
-  "message_id": 870,
+  "message_id": 1192,
   "current_schedule": [
     {
       "date": "2026-10-05",
@@ -81,17 +81,6 @@
       "room": "",
       "address": "",
       "teacher": ""
-    },
-    {
-      "date": "2026-10-09",
-      "start": "12:00",
-      "end": "14:50",
-      "kind": "normal",
-      "subject": "Межконфессиональные процессы в современном мире",
-      "lesson_type": "семинар",
-      "room": "кабинет не указан",
-      "address": "Тучков",
-      "teacher": "Коваленко Владимир Дмитриевич"
     },
     {
       "date": "2026-10-10",
