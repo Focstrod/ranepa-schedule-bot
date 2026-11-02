@@ -3,7 +3,7 @@
   "current_week_end": "2026-11-08",
   "next_week_start": "2026-11-09",
   "next_week_end": "2026-11-15",
-  "message_id": 2363,
+  "message_id": 2374,
   "current_schedule": [
     {
       "date": "2026-11-02",
@@ -23,8 +23,8 @@
       "kind": "normal",
       "subject": "Основы ведения переговорного процесса",
       "lesson_type": "семинар",
-      "room": "206",
-      "address": "Тучков",
+      "room": "СДО",
+      "address": "",
       "teacher": "Смирнова Марина Никитовна"
     },
     {
