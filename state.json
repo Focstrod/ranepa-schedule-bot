@@ -3,7 +3,7 @@
   "current_week_end": "2026-11-15",
   "next_week_start": "2026-11-16",
   "next_week_end": "2026-11-22",
-  "message_id": 2492,
+  "message_id": 2665,
   "current_schedule": [
     {
       "date": "2026-11-09",
@@ -67,7 +67,7 @@
       "kind": "normal",
       "subject": "Региональные аспекты современных международных отношений",
       "lesson_type": "семинар",
-      "room": "208",
+      "room": "206",
       "address": "Тучков",
       "teacher": "Пронякина Елизавета Дмитриевна"
     },
