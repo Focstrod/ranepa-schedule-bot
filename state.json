@@ -3,7 +3,7 @@
   "current_week_end": "2026-11-15",
   "next_week_start": "2026-11-16",
   "next_week_end": "2026-11-22",
-  "message_id": 2665,
+  "message_id": 2716,
   "current_schedule": [
     {
       "date": "2026-11-09",
@@ -89,8 +89,8 @@
       "kind": "normal",
       "subject": "Межконфессиональные процессы в современном мире",
       "lesson_type": "лекция",
-      "room": "521",
-      "address": "Средний",
+      "room": "203",
+      "address": "Тучков",
       "teacher": "Коваленко Владимир Дмитриевич"
     },
     {
