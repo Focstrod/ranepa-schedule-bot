@@ -3,7 +3,7 @@
   "current_week_end": "2026-11-15",
   "next_week_start": "2026-11-16",
   "next_week_end": "2026-11-22",
-  "message_id": 2761,
+  "message_id": 2783,
   "current_schedule": [
     {
       "date": "2026-11-09",
@@ -119,8 +119,8 @@
     },
     {
       "date": "2026-11-16",
-      "start": "18:30",
-      "end": "21:20",
+      "start": "15:00",
+      "end": "17:50",
       "kind": "normal",
       "subject": "Региональные аспекты современных международных отношений",
       "lesson_type": "семинар",
