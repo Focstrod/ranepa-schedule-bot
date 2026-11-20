@@ -3,7 +3,7 @@
   "current_week_end": "2026-11-22",
   "next_week_start": "2026-11-23",
   "next_week_end": "2026-11-29",
-  "message_id": 3074,
+  "message_id": 3104,
   "current_schedule": [
     {
       "date": "2026-11-16",
@@ -89,7 +89,7 @@
       "kind": "normal",
       "subject": "Введение в цели устойчивого развития (на английском языке)",
       "lesson_type": "лекция",
-      "room": "206",
+      "room": "203",
       "address": "Тучков",
       "teacher": "Новик Дмитрий Геннадьевич"
     }
